@@ -9,17 +9,38 @@ const pauseBtn = document.getElementById('pause-btn');
 const resetBtn = document.getElementById('reset-btn');
 const progressBar = document.getElementById('progress-bar');
 const statusLabel = document.getElementById('status-label');
-const sessionCounter = document.getElementById('session-counter');
+const sessionNameDisplay = document.getElementById('session-name');
+const sessionDescPreview = document.getElementById('session-desc-preview');
 const body = document.body;
 const glassCard = document.querySelector('.glass-card');
+
+// Modal Elements
+const settingsBtn = document.getElementById('settings-btn');
+const sessionInfoClickable = document.getElementById('session-info-clickable');
+const sessionModal = document.getElementById('session-modal');
+const historyModal = document.getElementById('history-modal');
+const closeSessionModal = document.getElementById('close-session-modal');
+const saveSessionBtn = document.getElementById('save-session-btn');
+const closeHistoryModal = document.getElementById('close-history-modal');
+const historyList = document.getElementById('history-list');
+
+// Input Elements
+const inputSessionName = document.getElementById('input-session-name');
+const inputSessionDesc = document.getElementById('input-session-desc');
 
 // State Variables
 let timeLeft = WORK_TIME;
 let timerId = null;
 let isWorkSession = true;
 let sessionsCompleted = parseInt(localStorage.getItem('sessionsCompleted')) || 0;
+let sessionHistory = JSON.parse(localStorage.getItem('sessionHistory')) || [];
 let startTime = null;
 let expectedTimeLeft = WORK_TIME;
+
+let currentSession = {
+    name: localStorage.getItem('currentSessionName') || `Session #${sessionsCompleted + 1}`,
+    description: localStorage.getItem('currentSessionDesc') || ""
+};
 
 // Progress Ring Setup
 const radius = progressBar.r.baseVal.value;
@@ -138,7 +159,68 @@ function resetTimer() {
     updateDisplay();
     updateTheme();
     startBtn.querySelector('span').textContent = 'Start';
-    sessionCounter.textContent = `Session #${sessionsCompleted + 1}`;
+    updateSessionUI();
+}
+
+// Modal Logic
+function openModal(modal) {
+    modal.classList.add('active');
+}
+
+function closeModal(modal) {
+    modal.classList.remove('active');
+}
+
+function updateSessionUI() {
+    sessionNameDisplay.textContent = currentSession.name || `Session #${sessionsCompleted + 1}`;
+    sessionDescPreview.textContent = currentSession.description || "Add a description...";
+
+    // Update inputs as well if modal is open
+    inputSessionName.value = currentSession.name;
+    inputSessionDesc.value = currentSession.description;
+}
+
+function saveSessionDetails() {
+    currentSession.name = inputSessionName.value.trim() || `Session #${sessionsCompleted + 1}`;
+    currentSession.description = inputSessionDesc.value.trim();
+
+    localStorage.setItem('currentSessionName', currentSession.name);
+    localStorage.setItem('currentSessionDesc', currentSession.description);
+
+    updateSessionUI();
+    closeModal(sessionModal);
+}
+
+function saveToHistory() {
+    const sessionData = {
+        name: currentSession.name,
+        description: currentSession.description,
+        timestamp: new Date().toLocaleString('de-DE'),
+        type: isWorkSession ? 'Work' : 'Break',
+        duration: isWorkSession ? WORK_TIME : BREAK_TIME
+    };
+
+    sessionHistory.unshift(sessionData);
+    if (sessionHistory.length > 50) sessionHistory.pop(); // Keep last 50
+
+    localStorage.setItem('sessionHistory', JSON.stringify(sessionHistory));
+}
+
+function renderHistory() {
+    if (sessionHistory.length === 0) {
+        historyList.innerHTML = '<div class="empty-state">No sessions recorded yet.</div>';
+        return;
+    }
+
+    historyList.innerHTML = sessionHistory.map((session, index) => `
+        <div class="history-item" style="animation-delay: ${index * 0.05}s">
+            <div class="history-item-header">
+                <span class="history-item-title">${session.name}</span>
+                <span class="history-item-date">${session.timestamp}</span>
+            </div>
+            ${session.description ? `<p class="history-item-desc">${session.description}</p>` : ''}
+        </div>
+    `).join('');
 }
 
 function createConfetti() {
@@ -176,6 +258,9 @@ function handleSessionEnd() {
     glassCard.classList.add('alert-anim');
     setTimeout(() => glassCard.classList.remove('alert-anim'), 1500);
 
+    // Save before switching
+    saveToHistory();
+
     if (isWorkSession) {
         createConfetti();
         sessionsCompleted++;
@@ -192,12 +277,20 @@ function handleSessionEnd() {
     updateTheme();
     updateDisplay();
 
+    // Reset current session name for next work session if it was a default one
+    if (isWorkSession) {
+        currentSession.name = `Session #${sessionsCompleted + 1}`;
+        currentSession.description = "";
+        localStorage.removeItem('currentSessionName');
+        localStorage.removeItem('currentSessionDesc');
+    }
+
     startBtn.disabled = false;
     startBtn.style.display = 'flex';
     pauseBtn.disabled = true;
     pauseBtn.style.display = 'none';
     startBtn.querySelector('span').textContent = 'Start ' + (isWorkSession ? 'Work' : 'Break');
-    sessionCounter.textContent = `Session #${sessionsCompleted + 1}`;
+    updateSessionUI();
 }
 
 function updateTheme() {
@@ -224,10 +317,32 @@ window.addEventListener('keydown', (e) => {
 // Initial Call
 updateDisplay();
 updateTheme();
-sessionCounter.textContent = `Session #${sessionsCompleted + 1}`;
+updateSessionUI();
 
 // Event Listeners
 startBtn.addEventListener('click', startTimer);
 pauseBtn.addEventListener('click', pauseTimer);
 resetBtn.addEventListener('click', resetTimer);
+
+sessionInfoClickable.addEventListener('click', () => {
+    inputSessionName.value = currentSession.name;
+    inputSessionDesc.value = currentSession.description;
+    openModal(sessionModal);
+});
+
+settingsBtn.addEventListener('click', () => {
+    renderHistory();
+    openModal(historyModal);
+});
+
+closeSessionModal.addEventListener('click', () => closeModal(sessionModal));
+saveSessionBtn.addEventListener('click', saveSessionDetails);
+closeHistoryModal.addEventListener('click', () => closeModal(historyModal));
+
+// Close modals on overlay click
+[sessionModal, historyModal].forEach(modal => {
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal(modal);
+    });
+});
 
