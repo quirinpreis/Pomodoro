@@ -1,6 +1,14 @@
-// Constants & Configuration
-const WORK_TIME = 50 * 60; // 50 minutes in seconds
-const BREAK_TIME = 10 * 60; // 10 minutes in seconds
+// Default Sequence
+const DEFAULT_SEQUENCE = [
+    { type: 'work', duration: 25 },
+    { type: 'break', duration: 5 },
+    { type: 'work', duration: 25 },
+    { type: 'break', duration: 5 },
+    { type: 'work', duration: 25 },
+    { type: 'break', duration: 5 },
+    { type: 'work', duration: 25 },
+    { type: 'break', duration: 30 }
+];
 
 // UI Elements
 const timeLeftDisplay = document.getElementById('time-left');
@@ -18,24 +26,30 @@ const glassCard = document.querySelector('.glass-card');
 const settingsBtn = document.getElementById('settings-btn');
 const sessionInfoClickable = document.getElementById('session-info-clickable');
 const sessionModal = document.getElementById('session-modal');
-const historyModal = document.getElementById('history-modal');
-const closeSessionModal = document.getElementById('close-session-modal');
 const saveSessionBtn = document.getElementById('save-session-btn');
-const closeHistoryModal = document.getElementById('close-history-modal');
+const settingsModal = document.getElementById('settings-modal');
+const closeSettingsModal = document.getElementById('close-settings-modal');
 const historyList = document.getElementById('history-list');
+const sequenceList = document.getElementById('sequence-list');
+const addStepBtn = document.getElementById('add-step-btn');
+const tabButtons = document.querySelectorAll('.tab-btn');
+const tabContents = document.querySelectorAll('.tab-content');
 
 // Input Elements
 const inputSessionName = document.getElementById('input-session-name');
 const inputSessionDesc = document.getElementById('input-session-desc');
 
-// State Variables
-let timeLeft = WORK_TIME;
+// Sequence State
+let timerSequence = JSON.parse(localStorage.getItem('timerSequence')) || DEFAULT_SEQUENCE;
+let currentStepIndex = parseInt(localStorage.getItem('currentStepIndex')) || 0;
+
+let currentStep = timerSequence[currentStepIndex];
+let timeLeft = currentStep.duration * 60;
 let timerId = null;
-let isWorkSession = true;
 let sessionsCompleted = parseInt(localStorage.getItem('sessionsCompleted')) || 0;
 let sessionHistory = JSON.parse(localStorage.getItem('sessionHistory')) || [];
 let startTime = null;
-let expectedTimeLeft = WORK_TIME;
+let expectedTimeLeft = timeLeft;
 
 let currentSession = {
     name: localStorage.getItem('currentSessionName') || `Session #${sessionsCompleted + 1}`,
@@ -103,9 +117,12 @@ function updateDisplay() {
     const seconds = Math.max(0, timeLeft) % 60;
     const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     timeLeftDisplay.textContent = timeString;
-    document.title = `${timeString} - ${isWorkSession ? 'Work' : 'Break'}`;
 
-    const totalTime = isWorkSession ? WORK_TIME : BREAK_TIME;
+    const displayType = currentStep.type === 'work' ? 'Work' : 'Break';
+    document.title = `${timeString} - ${displayType}`;
+    statusLabel.textContent = `${displayType} Session`;
+
+    const totalTime = currentStep.duration * 60;
     const percent = ((totalTime - timeLeft) / totalTime) * 100;
     setProgress(percent);
 }
@@ -154,8 +171,9 @@ function pauseTimer() {
 
 function resetTimer() {
     pauseTimer();
-    isWorkSession = true;
-    timeLeft = WORK_TIME;
+    currentStepIndex = 0;
+    currentStep = timerSequence[currentStepIndex];
+    timeLeft = currentStep.duration * 60;
     updateDisplay();
     updateTheme();
     startBtn.querySelector('span').textContent = 'Start';
@@ -196,8 +214,8 @@ function saveToHistory() {
         name: currentSession.name,
         description: currentSession.description,
         timestamp: new Date().toLocaleString('de-DE'),
-        type: isWorkSession ? 'Work' : 'Break',
-        duration: isWorkSession ? WORK_TIME : BREAK_TIME
+        type: currentStep.type === 'work' ? 'Work' : 'Break',
+        duration: currentStep.duration * 60
     };
 
     sessionHistory.unshift(sessionData);
@@ -250,35 +268,34 @@ function handleSessionEnd() {
 
     playBingSound();
 
-    const title = isWorkSession ? "Work Session Over!" : "Break Over!";
-    const msg = isWorkSession ? "Time for a 10-minute break." : "Ready to focus again?";
+    const isLastStep = currentStepIndex === timerSequence.length - 1;
+    const title = currentStep.type === 'work' ? "Work Session Over!" : "Break Over!";
+    const msg = isLastStep ? "Sequence completed! Starting over." : "Ready for the next step?";
     sendNotification(title, msg);
 
     // Visual Alert
     glassCard.classList.add('alert-anim');
     setTimeout(() => glassCard.classList.remove('alert-anim'), 1500);
 
-    // Save before switching
-    saveToHistory();
-
-    if (isWorkSession) {
+    // Save before switching (only if it was a work session)
+    if (currentStep.type === 'work') {
+        saveToHistory();
         createConfetti();
         sessionsCompleted++;
         localStorage.setItem('sessionsCompleted', sessionsCompleted);
-        isWorkSession = false;
-        timeLeft = BREAK_TIME;
-        statusLabel.textContent = 'Break Time!';
-    } else {
-        isWorkSession = true;
-        timeLeft = WORK_TIME;
-        statusLabel.textContent = 'Work Session';
     }
+
+    // Advance Sequence
+    currentStepIndex = (currentStepIndex + 1) % timerSequence.length;
+    localStorage.setItem('currentStepIndex', currentStepIndex);
+    currentStep = timerSequence[currentStepIndex];
+    timeLeft = currentStep.duration * 60;
 
     updateTheme();
     updateDisplay();
 
     // Reset current session name for next work session if it was a default one
-    if (isWorkSession) {
+    if (currentStep.type === 'work') {
         currentSession.name = `Session #${sessionsCompleted + 1}`;
         currentSession.description = "";
         localStorage.removeItem('currentSessionName');
@@ -289,12 +306,12 @@ function handleSessionEnd() {
     startBtn.style.display = 'flex';
     pauseBtn.disabled = true;
     pauseBtn.style.display = 'none';
-    startBtn.querySelector('span').textContent = 'Start ' + (isWorkSession ? 'Work' : 'Break');
+    startBtn.querySelector('span').textContent = 'Start ' + (currentStep.type === 'work' ? 'Work' : 'Break');
     updateSessionUI();
 }
 
 function updateTheme() {
-    if (isWorkSession) {
+    if (currentStep.type === 'work') {
         body.classList.remove('break-mode');
         body.classList.add('work-mode');
     } else {
@@ -303,8 +320,175 @@ function updateTheme() {
     }
 }
 
+// Sequence Management
+let draggedItemIndex = null;
+
+function renderSequence() {
+    sequenceList.innerHTML = timerSequence.map((step, index) => `
+        <div class="sequence-item" data-index="${index}" data-type="${step.type}" draggable="true" 
+            ondragstart="dragStart(event, ${index})" 
+            ondragover="dragOver(event)" 
+            ondragenter="dragEnter(event)" 
+            ondragleave="dragLeave(event)" 
+            ondrop="drop(event, ${index})" 
+            ondragend="dragEnd(event)">
+            <div class="sequence-item-drag">
+                <svg viewBox="0 0 24 24" width="20" height="20">
+                    <path fill="currentColor" d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                </svg>
+            </div>
+            <div class="sequence-item-type">
+                <select draggable="false" onchange="updateStep(${index}, 'type', this.value)">
+                    <option value="work" ${step.type === 'work' ? 'selected' : ''}>Focus</option>
+                    <option value="break" ${step.type === 'break' ? 'selected' : ''}>Break</option>
+                </select>
+            </div>
+            <div class="sequence-item-duration">
+                <input type="number" draggable="false" value="${step.duration}" min="1" max="1440" 
+                    onfocus="this.select()"
+                    onchange="updateStep(${index}, 'duration', parseInt(this.value))">
+                <span>min</span>
+            </div>
+            <div class="sequence-item-actions">
+                <button class="btn-icon btn-delete" onclick="deleteStep(${index})">
+                    <svg viewBox="0 0 24 24" width="20" height="20">
+                        <path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+window.dragStart = function (e, index) {
+    draggedItemIndex = index;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => e.target.classList.add('dragging'), 0);
+};
+
+window.dragOver = function (e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    return false;
+};
+
+window.dragEnter = function (e) {
+    e.preventDefault();
+    const target = e.currentTarget;
+    if (target.classList && target.classList.contains('sequence-item')) {
+        target.classList.add('drag-over');
+    }
+};
+
+window.dragLeave = function (e) {
+    const target = e.currentTarget;
+    if (target.classList && target.classList.contains('sequence-item')) {
+        target.classList.remove('drag-over');
+    }
+};
+
+window.drop = function (e, dropIndex) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+
+    if (draggedItemIndex === null || draggedItemIndex === dropIndex) return;
+
+    // Remove item from old position
+    const item = timerSequence.splice(draggedItemIndex, 1)[0];
+    // Insert item at new position
+    timerSequence.splice(dropIndex, 0, item);
+
+    localStorage.setItem('timerSequence', JSON.stringify(timerSequence));
+
+    // Update currentStepIndex if affected
+    if (currentStepIndex === draggedItemIndex) {
+        currentStepIndex = dropIndex;
+    } else if (draggedItemIndex < currentStepIndex && dropIndex >= currentStepIndex) {
+        currentStepIndex--;
+    } else if (draggedItemIndex > currentStepIndex && dropIndex <= currentStepIndex) {
+        currentStepIndex++;
+    }
+    localStorage.setItem('currentStepIndex', currentStepIndex);
+
+    currentStep = timerSequence[currentStepIndex];
+
+    renderSequence();
+    updateDisplay();
+};
+
+window.dragEnd = function (e) {
+    e.target.classList.remove('dragging');
+    draggedItemIndex = null;
+    const items = document.querySelectorAll('.sequence-item');
+    items.forEach(item => item.classList.remove('drag-over'));
+};
+
+window.updateStep = function (index, field, value) {
+    timerSequence[index][field] = value;
+    localStorage.setItem('timerSequence', JSON.stringify(timerSequence));
+
+    // If we're currently on this step, update the timer immediately
+    if (index === currentStepIndex) {
+        currentStep = timerSequence[currentStepIndex];
+        if (!timerId) {
+            timeLeft = currentStep.duration * 60;
+            updateDisplay();
+        }
+    }
+};
+
+window.deleteStep = function (index) {
+    if (timerSequence.length <= 1) return;
+    timerSequence.splice(index, 1);
+
+    if (currentStepIndex >= timerSequence.length) {
+        currentStepIndex = 0;
+    }
+
+    localStorage.setItem('timerSequence', JSON.stringify(timerSequence));
+    localStorage.setItem('currentStepIndex', currentStepIndex);
+
+    currentStep = timerSequence[currentStepIndex];
+    if (!timerId) {
+        timeLeft = currentStep.duration * 60;
+    }
+
+    renderSequence();
+    updateDisplay();
+};
+
+addStepBtn.addEventListener('click', () => {
+    const lastType = timerSequence[timerSequence.length - 1].type;
+    const newType = lastType === 'work' ? 'break' : 'work';
+    const newDuration = newType === 'work' ? 25 : 5;
+
+    timerSequence.push({ type: newType, duration: newDuration });
+    localStorage.setItem('timerSequence', JSON.stringify(timerSequence));
+    renderSequence();
+    updateDisplay(); // For the step counter
+});
+
+// Tab Switching
+tabButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+
+        tabButtons.forEach(b => b.classList.remove('active'));
+        tabContents.forEach(c => c.classList.remove('active'));
+
+        btn.classList.add('active');
+        document.getElementById(`${tab}-tab`).classList.add('active');
+
+        if (tab === 'history') renderHistory();
+        if (tab === 'sequence') renderSequence();
+    });
+});
+
 // Keyboard Shortcuts
 window.addEventListener('keydown', (e) => {
+    const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName.toUpperCase());
+    if (isInput) return;
+
     if (e.code === 'Space') {
         e.preventDefault();
         if (timerId) pauseTimer();
@@ -318,6 +502,7 @@ window.addEventListener('keydown', (e) => {
 updateDisplay();
 updateTheme();
 updateSessionUI();
+renderSequence();
 
 // Event Listeners
 startBtn.addEventListener('click', startTimer);
@@ -331,16 +516,17 @@ sessionInfoClickable.addEventListener('click', () => {
 });
 
 settingsBtn.addEventListener('click', () => {
-    renderHistory();
-    openModal(historyModal);
+    // Open default tab
+    tabButtons[0].click();
+    openModal(settingsModal);
 });
 
-closeSessionModal.addEventListener('click', () => closeModal(sessionModal));
+closeSettingsModal.addEventListener('click', () => closeModal(settingsModal));
 saveSessionBtn.addEventListener('click', saveSessionDetails);
-closeHistoryModal.addEventListener('click', () => closeModal(historyModal));
+document.getElementById('close-session-modal').addEventListener('click', () => closeModal(sessionModal));
 
 // Close modals on overlay click
-[sessionModal, historyModal].forEach(modal => {
+[sessionModal, settingsModal].forEach(modal => {
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeModal(modal);
     });
